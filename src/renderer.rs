@@ -187,10 +187,12 @@ impl ColoredPolygonRenderer {
     ) {
         let mut encoder = ctx
             .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("1") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("renderer"),
+            });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("1"),
+                label: Some("renderer"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: dst,
                     resolve_target: None,

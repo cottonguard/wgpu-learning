@@ -1,39 +1,42 @@
 use crate::core::Context;
 
 pub struct MagFilter {
-    bind_group_layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    sampler_bind_group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
 }
 
-pub struct MagFilterSource {
+pub struct SourceTexture {
     bind_group: wgpu::BindGroup,
 }
 
 impl MagFilter {
     pub fn new(ctx: &Context) -> Self {
-        let bind_group_layout =
+        let sampler_bind_group_layout =
             ctx.device()
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("filter"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    }],
+                });
+        let texture_bind_group_layout =
+            ctx.device()
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("filter"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
+                        count: None,
+                    }],
                 });
         let shader = ctx
             .device()
@@ -42,7 +45,7 @@ impl MagFilter {
             ctx.device()
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("MagFilter"),
-                    bind_group_layouts: &[&bind_group_layout],
+                    bind_group_layouts: &[&texture_bind_group_layout, &sampler_bind_group_layout],
                     push_constant_ranges: &[],
                 });
         let pipeline = ctx
@@ -64,7 +67,11 @@ impl MagFilter {
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: "fs_main",
-                    targets: &[],
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: ctx.config().format,
+                        blend: None, // Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
                 }),
                 multiview: None,
             });
@@ -82,32 +89,34 @@ impl MagFilter {
             anisotropy_clamp: 1,
             border_color: None,
         });
+        let sampler_bind_group = ctx.device().create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("filter"),
+            layout: &sampler_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            }],
+        });
         Self {
-            bind_group_layout,
-            sampler,
+            texture_bind_group_layout,
+            sampler_bind_group,
             pipeline,
         }
     }
 
-    pub fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> MagFilterSource {
+    pub fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
         let bind_group = ctx.device().create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("filter"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
+            layout: &self.texture_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            }],
         });
-        MagFilterSource { bind_group }
+        SourceTexture { bind_group }
     }
 
-    pub fn render(&self, ctx: &Context, src: &MagFilterSource, dst: &wgpu::TextureView) {
+    pub fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
         let mut encoder = ctx
             .device()
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -128,6 +137,7 @@ impl MagFilter {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &src.bind_group, &[]);
+            pass.set_bind_group(1, &self.sampler_bind_group, &[]);
             pass.draw(0..4, 0..1);
         }
 

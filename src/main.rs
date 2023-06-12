@@ -1,6 +1,7 @@
 use cg8::{
     camera::{Camera, Projection},
-    core::{App, Context, Engine},
+    core::{App, ClearColor, Context, Engine},
+    filter::{MagFilter, SourceTexture},
     renderer::{
         ColoredPolygonRenderer, ColoredPolygons, ColoredVertex, ColoredVertices, Indices, Instance,
         Instances,
@@ -17,9 +18,13 @@ fn main() {
 
 pub struct MyApp {
     camera: Camera,
+    clear_color: ClearColor,
     renderer: ColoredPolygonRenderer,
     polygons: ColoredPolygons,
     instances: Instances,
+    mag_filter: MagFilter,
+    frame_unscaled: wgpu::Texture,
+    scale_source: SourceTexture,
 }
 
 impl MyApp {
@@ -28,7 +33,10 @@ impl MyApp {
         let projection =
             Projection::perspective(std::f32::consts::FRAC_PI_4, ctx.aspect_ratio(), 0.1, 1000.0);
         // Projection::Orthographic { left: 0, right: 800, bottom: 500, top: 0, near: (), far: () }
-        let camera = Camera::new(ctx, transform, projection);
+        let scale = 4;
+        let width = ctx.size().0 / scale;
+        let height = ctx.size().1 / scale;
+        let camera = Camera::new(ctx, transform, projection, width, height);
         let renderer = ColoredPolygonRenderer::new(ctx);
         let polygons = octahedron(ctx);
         let t = Mat4::from_translation(vec3(0.0, 0.0, 10.0));
@@ -38,11 +46,41 @@ impl MyApp {
                 mat: t.to_cols_array_2d(),
             }],
         );
+        let mag_filter = MagFilter::new(ctx);
+        let frame_unscaled = ctx.device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("unscaled"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: ctx.config().format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let scale_source = mag_filter.create_source(
+            ctx,
+            &frame_unscaled.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
         Self {
             camera,
+            clear_color: ClearColor {
+                color: wgpu::Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 1.0,
+                },
+            },
             renderer,
             polygons,
             instances,
+            mag_filter,
+            frame_unscaled,
+            scale_source,
         }
     }
 }
@@ -80,17 +118,17 @@ impl App for MyApp {
         self.instances.update_buffer(ctx);
     }
     fn render(&mut self, ctx: &Context) {
+        let view = self
+            .frame_unscaled
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.clear_color.render(ctx, &view);
+        self.renderer
+            .render(ctx, &view, &self.polygons, &self.instances, &self.camera);
         let frame = ctx.surface().get_current_texture().unwrap();
         let frame_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        self.renderer.render(
-            ctx,
-            &frame_view,
-            &self.polygons,
-            &self.instances,
-            &self.camera,
-        );
+        self.mag_filter.render(ctx, &self.scale_source, &frame_view);
         frame.present();
     }
 }

@@ -190,7 +190,7 @@ pub trait App {
 }
 
 pub struct ClearColor {
-    color: wgpu::Color,
+    pub color: wgpu::Color,
 }
 
 impl ClearColor {

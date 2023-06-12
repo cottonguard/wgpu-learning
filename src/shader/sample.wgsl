@@ -1,7 +1,7 @@
 @group(0) @binding(0)
 var tex: texture_2d<f32>;
-@group(0) @binding(1)
-var sampler: sampler;
+@group(1) @binding(0)
+var samp: sampler;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -9,16 +9,17 @@ struct VsOut {
 };
 
 @vertex
-fn vs_main(@builtin(vertex_index) i: i32) -> vec4<f32> {
+fn vs_main(@builtin(vertex_index) i: u32) -> VsOut {
     var out: VsOut;
-    let x = f32(i & 1);
-    let y = f32(i >> 1);
-    out.pos = vec4(2 * x - 1, 2 * y - 1, 0.0, 1.0);
-    out.tex_coords = vec2(x, -y);
+    let x = f32(i & 1u);
+    let y = f32(i >> 1u);
+    out.pos = vec4(2.0 * x - 1.0, 2.0 * y - 1.0, 0.0, 1.0);
+    out.tex_coords = vec2(x, 1.0 - y);
     return out;
 }
 
 @fragment
-fn fs_main(in: VsOut) -> vec4<f32> {
-    return textureSample(tex, sampler, in.tex_coords);
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return textureSample(tex, samp, in.tex_coords);
+    // return vec4(in.tex_coords, 1.0, 1.0);
 }

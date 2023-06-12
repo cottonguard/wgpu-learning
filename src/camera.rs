@@ -14,7 +14,13 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(ctx: &Context, transform: Affine3A, projection: Projection) -> Self {
+    pub fn new(
+        ctx: &Context,
+        transform: Affine3A,
+        projection: Projection,
+        width: u32,
+        height: u32,
+    ) -> Self {
         let buffer = ctx.device().create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera"),
             size: mem::size_of::<[f32; 16]>() as _,
@@ -32,8 +38,8 @@ impl Camera {
         let depth_texture = ctx.device().create_texture(&wgpu::TextureDescriptor {
             label: Some("depth"),
             size: wgpu::Extent3d {
-                width: ctx.size().0,
-                height: ctx.size().1,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
