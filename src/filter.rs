@@ -1,17 +1,26 @@
 use crate::core::Context;
 
 pub struct MagFilter {
-    texture_bind_group_layout: wgpu::BindGroupLayout,
-    sampler_bind_group: wgpu::BindGroup,
-    pipeline: wgpu::RenderPipeline,
+    inner: Filter,
 }
 
 pub struct SourceTexture {
     bind_group: wgpu::BindGroup,
 }
 
-impl MagFilter {
-    pub fn new(ctx: &Context) -> Self {
+struct Filter {
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    sampler_bind_group: wgpu::BindGroup,
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl Filter {
+    fn new(
+        ctx: &Context,
+        shader: wgpu::ShaderModule,
+        vertex_entry_point: &str,
+        fragment_entry_point: &str,
+    ) -> Self {
         let sampler_bind_group_layout =
             ctx.device()
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -38,9 +47,11 @@ impl MagFilter {
                         count: None,
                     }],
                 });
+        /*
         let shader = ctx
             .device()
             .create_shader_module(wgpu::include_wgsl!("./shader/sample.wgsl"));
+         */
         let pipeline_layout =
             ctx.device()
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -55,7 +66,7 @@ impl MagFilter {
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: "vs_main",
+                    entry_point: vertex_entry_point,
                     buffers: &[],
                 },
                 primitive: wgpu::PrimitiveState {
@@ -66,7 +77,7 @@ impl MagFilter {
                 multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: "fs_main",
+                    entry_point: fragment_entry_point,
                     targets: &[Some(wgpu::ColorTargetState {
                         format: ctx.config().format,
                         blend: None, // Some(wgpu::BlendState::REPLACE),
@@ -76,7 +87,7 @@ impl MagFilter {
                 multiview: None,
             });
         let sampler = ctx.device().create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("MagFilter"),
+            label: Some("filter"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -104,7 +115,7 @@ impl MagFilter {
         }
     }
 
-    pub fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
+    fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
         let bind_group = ctx.device().create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("filter"),
             layout: &self.texture_bind_group_layout,
@@ -116,7 +127,7 @@ impl MagFilter {
         SourceTexture { bind_group }
     }
 
-    pub fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
+    fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
         let mut encoder = ctx
             .device()
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -144,3 +155,47 @@ impl MagFilter {
         ctx.queue().submit([encoder.finish()]);
     }
 }
+
+impl MagFilter {
+    pub fn new(ctx: &Context) -> Self {
+        let shader = ctx
+            .device()
+            .create_shader_module(wgpu::include_wgsl!("./shader/sample.wgsl"));
+        Self {
+            inner: Filter::new(ctx, shader, "vs_main", "fs_main"),
+        }
+    }
+
+    pub fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
+        self.inner.create_source(ctx, view)
+    }
+
+    pub fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
+        self.inner.render(ctx, src, dst)
+    }
+}
+
+pub struct RoundColor {
+    inner: Filter,
+}
+
+impl RoundColor {
+    pub fn new(ctx: &Context) -> Self {
+        let shader = ctx
+            .device()
+            .create_shader_module(wgpu::include_wgsl!("./shader/round_color.wgsl"));
+        Self {
+            inner: Filter::new(ctx, shader, "vs_main", "fs_main"),
+        }
+    }
+
+    pub fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
+        self.inner.create_source(ctx, view)
+    }
+
+    pub fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
+        self.inner.render(ctx, src, dst)
+    }
+}
+
+struct Afterimage {}

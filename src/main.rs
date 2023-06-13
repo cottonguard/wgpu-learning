@@ -1,7 +1,7 @@
 use cg8::{
     camera::{Camera, Projection},
     core::{App, ClearColor, Context, Engine},
-    filter::{MagFilter, SourceTexture},
+    filter::{MagFilter, RoundColor, SourceTexture},
     renderer::{
         ColoredPolygonRenderer, ColoredPolygons, ColoredVertex, ColoredVertices, Indices, Instance,
         Instances,
@@ -23,8 +23,10 @@ pub struct MyApp {
     polygons: ColoredPolygons,
     instances: Instances,
     mag_filter: MagFilter,
-    frame_unscaled: wgpu::Texture,
-    scale_source: SourceTexture,
+    round_color: RoundColor,
+    frames: Vec<wgpu::Texture>,
+    frame_views: Vec<wgpu::TextureView>,
+    frame_sources: Vec<SourceTexture>,
 }
 
 impl MyApp {
@@ -47,24 +49,34 @@ impl MyApp {
             }],
         );
         let mag_filter = MagFilter::new(ctx);
-        let frame_unscaled = ctx.device().create_texture(&wgpu::TextureDescriptor {
-            label: Some("unscaled"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: ctx.config().format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let scale_source = mag_filter.create_source(
-            ctx,
-            &frame_unscaled.create_view(&wgpu::TextureViewDescriptor::default()),
-        );
+        let round_color = RoundColor::new(ctx);
+        let mut frames = vec![];
+        let mut frame_views = vec![];
+        let mut frame_sources = vec![];
+        for _ in 0..2 {
+            let frame = ctx.device().create_texture(&wgpu::TextureDescriptor {
+                label: Some("frame"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: ctx.config().format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let frame_source = mag_filter.create_source(
+                ctx,
+                &frame.create_view(&wgpu::TextureViewDescriptor::default()),
+            );
+            frame_views.push(frame.create_view(&wgpu::TextureViewDescriptor::default()));
+            frames.push(frame);
+            frame_sources.push(frame_source);
+        }
         Self {
             camera,
             clear_color: ClearColor {
@@ -79,8 +91,10 @@ impl MyApp {
             polygons,
             instances,
             mag_filter,
-            frame_unscaled,
-            scale_source,
+            round_color,
+            frames,
+            frame_views,
+            frame_sources,
         }
     }
 }
@@ -118,17 +132,22 @@ impl App for MyApp {
         self.instances.update_buffer(ctx);
     }
     fn render(&mut self, ctx: &Context) {
-        let view = self
-            .frame_unscaled
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        self.clear_color.render(ctx, &view);
-        self.renderer
-            .render(ctx, &view, &self.polygons, &self.instances, &self.camera);
+        self.clear_color.render(ctx, &self.frame_views[0]);
+        self.renderer.render(
+            ctx,
+            &self.frame_views[0],
+            &self.polygons,
+            &self.instances,
+            &self.camera,
+        );
+        self.round_color
+            .render(ctx, &self.frame_sources[0], &self.frame_views[1]);
         let frame = ctx.surface().get_current_texture().unwrap();
         let frame_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        self.mag_filter.render(ctx, &self.scale_source, &frame_view);
+        self.mag_filter
+            .render(ctx, &self.frame_sources[1], &frame_view);
         frame.present();
     }
 }
