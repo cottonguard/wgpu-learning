@@ -21,6 +21,7 @@ pub struct Context {
     config: wgpu::SurfaceConfiguration,
 
     camera_bind_group_layout: wgpu::BindGroupLayout,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
 
     input: Input,
     frame_count: u64,
@@ -134,6 +135,21 @@ impl Context {
         &self.camera_bind_group_layout
     }
 
+    pub fn texture_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.texture_bind_group_layout
+    }
+
+    pub fn surface_texture(&self) -> SurfaceTexture {
+        let surface = self.surface.get_current_texture().unwrap();
+        let texture = Texture {
+            view: surface
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+            bind_group: None,
+        };
+        SurfaceTexture { surface, texture }
+    }
+
     fn new(window: &Window) -> Self {
         smol::block_on(Self::new_async(window))
     }
@@ -168,6 +184,21 @@ impl Context {
 
         let camera_bind_group_layout = Camera::bind_group_layout(&device);
 
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+
         Self {
             instance,
             adapter,
@@ -177,9 +208,43 @@ impl Context {
             config,
 
             camera_bind_group_layout,
+            texture_bind_group_layout,
 
             input: Input::default(),
             frame_count: 0,
+        }
+    }
+
+    pub fn create_texture(&self, width: u32, height: u32) -> Texture {
+        let tex = self.device().create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.config().format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let bind_group = self.device().create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.texture_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+
+        Texture {
+            view,
+            bind_group: Some(bind_group),
         }
     }
 }
@@ -194,7 +259,7 @@ pub struct ClearColor {
 }
 
 impl ClearColor {
-    pub fn render(&mut self, ctx: &Context, dst: &wgpu::TextureView) {
+    pub fn render(&mut self, ctx: &Context, dst: &Texture) {
         let mut encoder = ctx
             .device()
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -204,7 +269,7 @@ impl ClearColor {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("clear"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &dst,
+                    view: &dst.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(self.color),
@@ -215,5 +280,25 @@ impl ClearColor {
             });
         }
         ctx.queue().submit([encoder.finish()]);
+    }
+}
+
+pub struct Texture {
+    pub(crate) view: wgpu::TextureView,
+    pub(crate) bind_group: Option<wgpu::BindGroup>,
+}
+
+pub struct SurfaceTexture {
+    surface: wgpu::SurfaceTexture,
+    texture: Texture,
+}
+
+impl SurfaceTexture {
+    pub fn texture(&self) -> &Texture {
+        &self.texture
+    }
+
+    pub fn present(self) {
+        self.surface.present()
     }
 }

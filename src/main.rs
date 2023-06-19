@@ -1,7 +1,7 @@
 use cg8::{
     camera::{Camera, Projection},
-    core::{App, ClearColor, Context, Engine},
-    filter::{MagFilter, RoundColor, SourceTexture},
+    core::{App, ClearColor, Context, Engine, Texture},
+    filter::{GaussianBlur, MagFilter, RoundColor},
     renderer::{
         ColoredPolygonRenderer, ColoredPolygons, ColoredVertex, ColoredVertices, Indices, Instance,
         Instances,
@@ -11,6 +11,8 @@ use glam::{vec3, vec3a, Affine3A, Mat4};
 use winit::event::VirtualKeyCode;
 
 fn main() {
+    env_logger::init();
+
     let engine = Engine::new();
     let app = MyApp::new(&engine.context());
     engine.run(app);
@@ -22,11 +24,10 @@ pub struct MyApp {
     renderer: ColoredPolygonRenderer,
     polygons: ColoredPolygons,
     instances: Instances,
+    blur: GaussianBlur,
     mag_filter: MagFilter,
     round_color: RoundColor,
-    frames: Vec<wgpu::Texture>,
-    frame_views: Vec<wgpu::TextureView>,
-    frame_sources: Vec<SourceTexture>,
+    frames: Vec<Texture>,
 }
 
 impl MyApp {
@@ -48,35 +49,10 @@ impl MyApp {
                 mat: t.to_cols_array_2d(),
             }],
         );
+        let blur = GaussianBlur::new(ctx);
         let mag_filter = MagFilter::new(ctx);
         let round_color = RoundColor::new(ctx);
-        let mut frames = vec![];
-        let mut frame_views = vec![];
-        let mut frame_sources = vec![];
-        for _ in 0..2 {
-            let frame = ctx.device().create_texture(&wgpu::TextureDescriptor {
-                label: Some("frame"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: ctx.config().format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            let frame_source = mag_filter.create_source(
-                ctx,
-                &frame.create_view(&wgpu::TextureViewDescriptor::default()),
-            );
-            frame_views.push(frame.create_view(&wgpu::TextureViewDescriptor::default()));
-            frames.push(frame);
-            frame_sources.push(frame_source);
-        }
+        let frames: Vec<Texture> = (0..3).map(|_| ctx.create_texture(width, height)).collect();
         Self {
             camera,
             clear_color: ClearColor {
@@ -90,11 +66,10 @@ impl MyApp {
             renderer,
             polygons,
             instances,
+            blur,
             mag_filter,
             round_color,
             frames,
-            frame_views,
-            frame_sources,
         }
     }
 }
@@ -132,23 +107,22 @@ impl App for MyApp {
         self.instances.update_buffer(ctx);
     }
     fn render(&mut self, ctx: &Context) {
-        self.clear_color.render(ctx, &self.frame_views[0]);
+        self.clear_color.render(ctx, &self.frames[0]);
         self.renderer.render(
             ctx,
-            &self.frame_views[0],
+            &self.frames[0],
             &self.polygons,
             &self.instances,
             &self.camera,
         );
         self.round_color
-            .render(ctx, &self.frame_sources[0], &self.frame_views[1]);
-        let frame = ctx.surface().get_current_texture().unwrap();
-        let frame_view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .render(ctx, &self.frames[0], &self.frames[1]);
+        self.blur
+            .render(ctx, &self.frames[1], &self.frames[0], &self.frames[2]);
+        let surface = ctx.surface_texture();
         self.mag_filter
-            .render(ctx, &self.frame_sources[1], &frame_view);
-        frame.present();
+            .render(ctx, &self.frames[0], surface.texture());
+        surface.present();
     }
 }
 

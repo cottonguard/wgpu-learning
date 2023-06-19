@@ -1,15 +1,10 @@
-use crate::core::Context;
+use crate::core::{Context, Texture};
 
 pub struct MagFilter {
     inner: Filter,
 }
 
-pub struct SourceTexture {
-    bind_group: wgpu::BindGroup,
-}
-
 struct Filter {
-    texture_bind_group_layout: wgpu::BindGroupLayout,
     sampler_bind_group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
 }
@@ -17,7 +12,7 @@ struct Filter {
 impl Filter {
     fn new(
         ctx: &Context,
-        shader: wgpu::ShaderModule,
+        shader: &wgpu::ShaderModule,
         vertex_entry_point: &str,
         fragment_entry_point: &str,
     ) -> Self {
@@ -32,21 +27,6 @@ impl Filter {
                         count: None,
                     }],
                 });
-        let texture_bind_group_layout =
-            ctx.device()
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("filter"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    }],
-                });
         /*
         let shader = ctx
             .device()
@@ -56,7 +36,10 @@ impl Filter {
             ctx.device()
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("MagFilter"),
-                    bind_group_layouts: &[&texture_bind_group_layout, &sampler_bind_group_layout],
+                    bind_group_layouts: &[
+                        ctx.texture_bind_group_layout(),
+                        &sampler_bind_group_layout,
+                    ],
                     push_constant_ranges: &[],
                 });
         let pipeline = ctx
@@ -65,7 +48,7 @@ impl Filter {
                 label: Some("MagFilter"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &shader,
+                    module: shader,
                     entry_point: vertex_entry_point,
                     buffers: &[],
                 },
@@ -76,7 +59,7 @@ impl Filter {
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader,
+                    module: shader,
                     entry_point: fragment_entry_point,
                     targets: &[Some(wgpu::ColorTargetState {
                         format: ctx.config().format,
@@ -109,25 +92,12 @@ impl Filter {
             }],
         });
         Self {
-            texture_bind_group_layout,
             sampler_bind_group,
             pipeline,
         }
     }
 
-    fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
-        let bind_group = ctx.device().create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("filter"),
-            layout: &self.texture_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(view),
-            }],
-        });
-        SourceTexture { bind_group }
-    }
-
-    fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
+    fn render(&self, ctx: &Context, src: &Texture, dst: &Texture) {
         let mut encoder = ctx
             .device()
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -136,7 +106,7 @@ impl Filter {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("filter"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: dst,
+                    view: &dst.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
@@ -147,7 +117,7 @@ impl Filter {
             });
 
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &src.bind_group, &[]);
+            pass.set_bind_group(0, src.bind_group.as_ref().unwrap(), &[]);
             pass.set_bind_group(1, &self.sampler_bind_group, &[]);
             pass.draw(0..4, 0..1);
         }
@@ -162,15 +132,11 @@ impl MagFilter {
             .device()
             .create_shader_module(wgpu::include_wgsl!("./shader/sample.wgsl"));
         Self {
-            inner: Filter::new(ctx, shader, "vs_main", "fs_main"),
+            inner: Filter::new(ctx, &shader, "vs_main", "fs_main"),
         }
     }
 
-    pub fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
-        self.inner.create_source(ctx, view)
-    }
-
-    pub fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
+    pub fn render(&self, ctx: &Context, src: &Texture, dst: &Texture) {
         self.inner.render(ctx, src, dst)
     }
 }
@@ -185,17 +151,33 @@ impl RoundColor {
             .device()
             .create_shader_module(wgpu::include_wgsl!("./shader/round_color.wgsl"));
         Self {
-            inner: Filter::new(ctx, shader, "vs_main", "fs_main"),
+            inner: Filter::new(ctx, &shader, "vs_main", "fs_main"),
         }
     }
 
-    pub fn create_source(&self, ctx: &Context, view: &wgpu::TextureView) -> SourceTexture {
-        self.inner.create_source(ctx, view)
-    }
-
-    pub fn render(&self, ctx: &Context, src: &SourceTexture, dst: &wgpu::TextureView) {
+    pub fn render(&self, ctx: &Context, src: &Texture, dst: &Texture) {
         self.inner.render(ctx, src, dst)
     }
 }
 
-struct Afterimage {}
+pub struct GaussianBlur {
+    horizontal: Filter,
+    vertical: Filter,
+}
+
+impl GaussianBlur {
+    pub fn new(ctx: &Context) -> Self {
+        let shader = ctx
+            .device()
+            .create_shader_module(wgpu::include_wgsl!("./shader/gaussian_blur.wgsl"));
+        Self {
+            horizontal: Filter::new(ctx, &shader, "vs_main", "fs_horizontal"),
+            vertical: Filter::new(ctx, &shader, "vs_main", "fs_vertical"),
+        }
+    }
+
+    pub fn render(&self, ctx: &Context, src: &Texture, dst: &Texture, tmp: &Texture) {
+        self.horizontal.render(ctx, src, tmp);
+        self.vertical.render(ctx, tmp, dst);
+    }
+}

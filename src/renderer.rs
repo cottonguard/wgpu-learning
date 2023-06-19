@@ -5,7 +5,10 @@ use std::{
 
 use wgpu::util::DeviceExt;
 
-use crate::{camera::Camera, core::Context};
+use crate::{
+    camera::Camera,
+    core::{Context, Texture},
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -180,7 +183,7 @@ impl ColoredPolygonRenderer {
     pub fn render(
         &self,
         ctx: &Context,
-        dst: &wgpu::TextureView,
+        dst: &Texture,
         data: &ColoredPolygons,
         instances: &Instances,
         camera: &Camera,
@@ -194,7 +197,7 @@ impl ColoredPolygonRenderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("renderer"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: dst,
+                    view: &dst.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
