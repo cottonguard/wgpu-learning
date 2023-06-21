@@ -170,8 +170,8 @@ impl ColoredPolygonRenderer {
                     module: &shader,
                     entry_point: "fs_main",
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: ctx.config().format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        format: wgpu::TextureFormat::Rgba16Float, // self.config().format,
+                        blend: None, // Some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),

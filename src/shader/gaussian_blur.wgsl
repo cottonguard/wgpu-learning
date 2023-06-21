@@ -18,7 +18,7 @@ fn vs_main(@builtin(vertex_index) i: u32) -> VsOut {
     return out;
 }
 
-const RADIUS: i32 = 4;
+const RADIUS: i32 = 8;
 const SIGMA: f32 = 3.0;
 
 const TEMP_WIDTH: f32 = 400.0;

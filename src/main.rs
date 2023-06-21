@@ -1,7 +1,7 @@
 use cg8::{
     camera::{Camera, Projection},
     core::{App, ClearColor, Context, Engine, Texture},
-    filter::{GaussianBlur, MagFilter, RoundColor},
+    filter::{Bloom, GaussianBlur, MagFilter, RoundColor},
     renderer::{
         ColoredPolygonRenderer, ColoredPolygons, ColoredVertex, ColoredVertices, Indices, Instance,
         Instances,
@@ -25,6 +25,7 @@ pub struct MyApp {
     polygons: ColoredPolygons,
     instances: Instances,
     blur: GaussianBlur,
+    bloom: Bloom,
     mag_filter: MagFilter,
     round_color: RoundColor,
     frames: Vec<Texture>,
@@ -32,6 +33,7 @@ pub struct MyApp {
 
 impl MyApp {
     pub fn new(ctx: &Context) -> Self {
+        dbg!(ctx.config().format);
         let transform = Affine3A::IDENTITY;
         let projection =
             Projection::perspective(std::f32::consts::FRAC_PI_4, ctx.aspect_ratio(), 0.1, 1000.0);
@@ -50,9 +52,10 @@ impl MyApp {
             }],
         );
         let blur = GaussianBlur::new(ctx);
+        let bloom = Bloom::new(ctx);
         let mag_filter = MagFilter::new(ctx);
         let round_color = RoundColor::new(ctx);
-        let frames: Vec<Texture> = (0..3).map(|_| ctx.create_texture(width, height)).collect();
+        let frames: Vec<Texture> = (0..4).map(|_| ctx.create_texture(width, height)).collect();
         Self {
             camera,
             clear_color: ClearColor {
@@ -67,6 +70,7 @@ impl MyApp {
             polygons,
             instances,
             blur,
+            bloom,
             mag_filter,
             round_color,
             frames,
@@ -117,8 +121,18 @@ impl App for MyApp {
         );
         self.round_color
             .render(ctx, &self.frames[0], &self.frames[1]);
+        /*
         self.blur
             .render(ctx, &self.frames[1], &self.frames[0], &self.frames[2]);
+         */
+        self.bloom.render(
+            ctx,
+            &self.blur,
+            &self.frames[1],
+            &self.frames[0],
+            &self.frames[2],
+            &self.frames[3],
+        );
         let surface = ctx.surface_texture();
         self.mag_filter
             .render(ctx, &self.frames[0], surface.texture());
@@ -165,7 +179,7 @@ fn octahedron(ctx: &Context) -> ColoredPolygons {
         [0, -1, 0],
     ];
     fn c(x: i32) -> f32 {
-        (x as f32 + 1.0) * 0.5
+        (x as f32 + 1.0) * 0.8
     }
     let vertices = ColoredVertices::new(
         ctx,

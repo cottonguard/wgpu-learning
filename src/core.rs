@@ -177,9 +177,16 @@ impl Context {
             .await
             .unwrap();
         let size = window.inner_size();
-        let config = surface
+        let mut config = surface
             .get_default_config(&adapter, size.width, size.height)
             .unwrap();
+        if surface
+            .get_capabilities(&adapter)
+            .formats
+            .contains(&wgpu::TextureFormat::Rgba16Float)
+        {
+            config.format = wgpu::TextureFormat::Rgba16Float;
+        }
         surface.configure(&device, &config);
 
         let camera_bind_group_layout = Camera::bind_group_layout(&device);
@@ -226,7 +233,7 @@ impl Context {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: self.config().format,
+            format: wgpu::TextureFormat::Rgba16Float, // self.config().format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
